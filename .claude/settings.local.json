@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(tail:*)",
+      "Bash(head:*)",
+      "Bash(cd /e/Repos/money_project && npx tsc --noEmit 2>&1)",
+      "Bash(grep:*)",
+      "Bash(echo TS: CLEAN:*)"
+    ]
+  }
+}
