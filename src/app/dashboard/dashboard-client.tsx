@@ -107,7 +107,9 @@ export default function DashboardClient({
 
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
-    if (!customerName || !customerPhone) return;
+    if (!customerName) return;
+    if (channel === "sms" && !customerPhone) return;
+    if (channel === "email" && !customerEmail) return;
     if (monthlyUsage >= requestLimit) {
       setSendResult({
         success: false,
@@ -374,6 +376,28 @@ export default function DashboardClient({
                 </div>
               )}
               <form onSubmit={handleSend} className="space-y-4">
+                {/* Channel toggle */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Send via
+                  </label>
+                  <div className="flex gap-2">
+                    {(["sms", "email"] as const).map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setChannel(c)}
+                        className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                          channel === c
+                            ? "bg-blue-50 border-blue-300 text-blue-700"
+                            : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                        }`}
+                      >
+                        {c === "sms" ? "📱 SMS" : "✉️ Email"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Customer name <span className="text-red-500">*</span>
@@ -387,19 +411,34 @@ export default function DashboardClient({
                     placeholder="Jane Smith"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Phone number <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    required
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="(555) 123-4567"
-                  />
-                </div>
+                {channel === "sms" && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Phone number <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="tel"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
+                )}
+                {channel === "email" && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Customer email <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="customer@example.com"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Platform
@@ -422,18 +461,17 @@ export default function DashboardClient({
                   </div>
                 </div>
                 <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-600">
-                  <p className="font-medium text-gray-700 mb-1">
-                    Preview message:
-                  </p>
+                  <p className="font-medium text-gray-700 mb-1">Preview:</p>
                   <p className="text-xs leading-relaxed">
-                    &quot;Hi {customerName || "[Name]"}! Thanks for choosing{" "}
-                    {selectedBusiness.name} today. Could you take 60 seconds to
-                    share your experience? {selectedBusiness.google_review_link || "[review link]"}&quot;
+                    {channel === "email"
+                      ? `Subject: How was your experience with ${selectedBusiness.name}? — "Hi ${customerName || "[Name]"}, thank you for choosing ${selectedBusiness.name}..."`
+                      : `"Hi ${customerName || "[Name]"}! Thanks for choosing ${selectedBusiness.name} today. Could you take 60 seconds to share your experience? ${selectedBusiness.google_review_link || "[review link]"}"`
+                    }
                   </p>
                 </div>
                 <button
                   type="submit"
-                  disabled={sending || !customerName || !customerPhone}
+                  disabled={sending || !customerName || (channel === "sms" && !customerPhone) || (channel === "email" && !customerEmail)}
                   className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                 >
                   {sending ? (

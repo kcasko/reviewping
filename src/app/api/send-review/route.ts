@@ -3,12 +3,13 @@ import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { sendReviewSMS } from "@/lib/twilio";
+import { sendReviewEmail } from "@/lib/resend";
 import { z } from "zod";
 
 const SendSchema = z.object({
   businessId: z.string().uuid(),
   customerName: z.string().min(1).max(100),
-  customerPhone: z.string().min(10),
+  customerPhone: z.string().min(10).optional().nullable(),
   customerEmail: z.string().email().optional().nullable(),
   channel: z.enum(["sms", "email", "both"]).default("sms"),
   platform: z.enum(["google", "yelp", "facebook"]).default("google"),
@@ -17,7 +18,6 @@ const SendSchema = z.object({
 export async function POST(req: Request) {
   const supabase = await createClient();
 
-  // Auth check
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -26,7 +26,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Parse body
   let body: unknown;
   try {
     body = await req.json();
@@ -45,7 +44,14 @@ export async function POST(req: Request) {
   const { businessId, customerName, customerPhone, customerEmail, channel, platform } =
     parsed.data;
 
-  // Check the business belongs to this user
+  // Validate required fields per channel
+  if ((channel === "sms" || channel === "both") && !customerPhone) {
+    return NextResponse.json({ error: "Phone number required for SMS" }, { status: 400 });
+  }
+  if ((channel === "email" || channel === "both") && !customerEmail) {
+    return NextResponse.json({ error: "Email required for email channel" }, { status: 400 });
+  }
+
   const { data: business, error: bizError } = await supabase
     .from("businesses")
     .select("id, name, google_review_link, yelp_review_link")
@@ -77,15 +83,11 @@ export async function POST(req: Request) {
 
   if (!isPro && monthlyCount >= 100) {
     return NextResponse.json(
-      {
-        error:
-          "Monthly limit of 100 requests reached. Upgrade to Pro for unlimited.",
-      },
+      { error: "Monthly limit of 100 requests reached. Upgrade to Pro for unlimited." },
       { status: 429 }
     );
   }
 
-  // Get review link
   const reviewLink =
     platform === "yelp"
       ? business.yelp_review_link || business.google_review_link
@@ -98,18 +100,17 @@ export async function POST(req: Request) {
     );
   }
 
-  // Send SMS
   let twilioSid: string | undefined;
   let status: "sent" | "failed" = "sent";
 
-  if (channel === "sms" || channel === "both") {
+  // Send SMS
+  if ((channel === "sms" || channel === "both") && customerPhone) {
     const result = await sendReviewSMS({
       to: customerPhone,
       customerName,
       businessName: business.name,
       reviewLink,
     });
-
     if (result.success) {
       twilioSid = result.sid;
     } else {
@@ -117,17 +118,29 @@ export async function POST(req: Request) {
     }
   }
 
-  // Use service client to insert (bypasses RLS for insert from server)
+  // Send email
+  if ((channel === "email" || channel === "both") && customerEmail) {
+    const result = await sendReviewEmail({
+      to: customerEmail,
+      customerName,
+      businessName: business.name,
+      reviewLink,
+      fromEmail: process.env.RESEND_FROM_EMAIL || "reviews@reviewping.com",
+    });
+    if (!result.success && channel === "email") {
+      status = "failed";
+    }
+  }
+
   const serviceSupabase = await createServiceClient();
 
-  // Record the request
   const { data: request, error: insertError } = await serviceSupabase
     .from("review_requests")
     .insert({
       business_id: businessId,
       user_id: user.id,
       customer_name: customerName,
-      customer_phone: customerPhone,
+      customer_phone: customerPhone || null,
       customer_email: customerEmail || null,
       platform,
       channel,
@@ -146,7 +159,6 @@ export async function POST(req: Request) {
     );
   }
 
-  // Increment monthly usage
   await serviceSupabase.rpc("increment_monthly_usage", { p_user_id: user.id });
 
   return NextResponse.json({ success: true, request });

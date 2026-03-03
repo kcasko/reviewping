@@ -1,8 +1,8 @@
 -- ReviewPing Database Schema
--- Run this in your Supabase SQL editor
+-- Run this in your Supabase SQL editor (safe to re-run)
 
 -- Profiles table (extends Supabase auth.users)
-CREATE TABLE profiles (
+CREATE TABLE IF NOT EXISTS profiles (
   id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
   email TEXT NOT NULL,
   full_name TEXT,
@@ -11,7 +11,7 @@ CREATE TABLE profiles (
 );
 
 -- Businesses table (a user can have multiple locations on Pro plan)
-CREATE TABLE businesses (
+CREATE TABLE IF NOT EXISTS businesses (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE businesses (
 );
 
 -- Subscriptions table (synced from Stripe webhooks)
-CREATE TABLE subscriptions (
+CREATE TABLE IF NOT EXISTS subscriptions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   stripe_customer_id TEXT UNIQUE,
@@ -43,7 +43,7 @@ CREATE TABLE subscriptions (
 );
 
 -- Review requests table
-CREATE TABLE review_requests (
+CREATE TABLE IF NOT EXISTS review_requests (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   business_id UUID REFERENCES businesses(id) ON DELETE CASCADE NOT NULL,
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
@@ -61,7 +61,7 @@ CREATE TABLE review_requests (
 );
 
 -- Monthly usage tracking
-CREATE TABLE monthly_usage (
+CREATE TABLE IF NOT EXISTS monthly_usage (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES profiles(id) ON DELETE CASCADE NOT NULL,
   month TEXT NOT NULL, -- format: 'YYYY-MM'
@@ -79,12 +79,22 @@ ALTER TABLE review_requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE monthly_usage ENABLE ROW LEVEL SECURITY;
 
 -- Policies: users can only see their own data
+DROP POLICY IF EXISTS "Users can view own profile" ON profiles;
 CREATE POLICY "Users can view own profile" ON profiles FOR SELECT USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
 CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can view own businesses" ON businesses;
 CREATE POLICY "Users can view own businesses" ON businesses FOR ALL USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can view own subscription" ON subscriptions;
 CREATE POLICY "Users can view own subscription" ON subscriptions FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can view own requests" ON review_requests;
 CREATE POLICY "Users can view own requests" ON review_requests FOR ALL USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can view own usage" ON monthly_usage;
 CREATE POLICY "Users can view own usage" ON monthly_usage FOR SELECT USING (auth.uid() = user_id);
 
 -- Function to auto-create profile on signup
@@ -101,6 +111,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
